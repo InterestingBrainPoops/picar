@@ -24,12 +24,14 @@ impl Motor {
         }
     }
 
-    pub fn warmup(&mut self) {
+    pub fn warmup(&mut self, width: u64) {
         self.pwm
-            .set_pulse_width(Duration::from_micros(self.bounds.0))
+            .set_pulse_width(Duration::from_micros(width))
             .unwrap();
     }
-
+    pub fn disable(&mut self) {
+        self.pwm.disable().unwrap();
+    }
     pub fn set_speed(&mut self, percentage: f64) {
         self.current_speed =
             self.bounds.0 + ((self.bounds.1 - self.bounds.0) as f64 * percentage) as u64;
@@ -37,10 +39,16 @@ impl Motor {
             .set_pulse_width(Duration::from_micros(self.current_speed))
             .unwrap();
     }
-
+    pub fn set_duty(&mut self, duty: f64) {
+        self.pwm.set_duty_cycle(duty).unwrap();
+    }
     pub fn speed(&self) -> f64 {
         let range = (self.bounds.1 - self.bounds.0) as f64;
         let x = self.current_speed - self.bounds.0;
         x as f64 / range
+    }
+
+    pub fn set_pulse(&self, dur: Duration) {
+        self.pwm.set_pulse_width(dur);
     }
 }

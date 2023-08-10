@@ -6,8 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-camera_capture = "0.5.0"
-image = "0.24.6"
+chrono = "0.4.26"
+csv = "1.2.2"
+ctrlc = "3.4.0"
+opencv = "0.84.4"
 rppal = { version = "0.14.1", features = ["hal"] }
-rscam = { version = "0.5.5" }
-v4l = { version = "0.14.0", features = ["v4l2"] }
+serde = { version = "1.0.183", features = ["derive"] }
