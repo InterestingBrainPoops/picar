@@ -1,23 +1,9 @@
-// pwm_servo.rs - Rotates a servo using hardware PWM.
-//
-// Calibrate your servo beforehand, and change the values listed below to fall
-// within your servo's safe limits to prevent potential damage. Don't power the
-// servo directly from the Pi's GPIO header. Current spikes during power-up and
-// stalls could otherwise damage your Pi, or cause your Pi to spontaneously
-// reboot, corrupting your microSD card. If you're powering the servo using a
-// separate power supply, remember to connect the grounds of the Pi and the
-// power supply together.
-//
-// Interrupting the process by pressing Ctrl-C causes the application to exit
-// immediately without disabling the PWM channel. Check out the
-// gpio_blinkled_signals.rs example to learn how to properly handle incoming
-// signals to prevent an abnormal termination.
-
 mod motor;
 mod profile;
 use csv::Writer;
 use motor::Motor;
 use opencv::core::{bitwise_and, in_range, Mat, Point, Rect, Scalar, Vector, CV_8U};
+use opencv::highgui::WND_PROP_AUTOSIZE;
 use opencv::imgproc::{
     contour_area, draw_contours, find_contours, moments, CHAIN_APPROX_NONE, LINE_8, RETR_EXTERNAL,
 };
@@ -32,7 +18,9 @@ use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::{error::Error, sync::mpsc};
-
+use tract_core::internal::*;
+use tract_ndarray::Array;
+use tract_onnx::prelude::*;
 #[derive(Debug)]
 enum MotorMessage {
     SmoothTo(f64),
@@ -63,6 +51,15 @@ struct ControlLog {
 // 0.167 % every 1 ms
 // 0.833 every tick at a 200Hz phased loop
 fn main() -> Result<(), Box<dyn Error>> {
+    let model = tract_onnx::onnx()
+        // load the model
+        .model_for_path("driver.onnx")?
+        // specify input type and shape
+        .with_input_fact(0, f32::fact([2]).into())?
+        // optimize the model
+        .into_optimized()?
+        // make the model runnable and fix its inputs and outputs
+        .into_runnable()?;
     let (motor_send, motor_recieve) = mpsc::channel();
     let (main_send, main_recieve) = mpsc::channel();
     let ctrlc_send = motor_send.clone();
@@ -157,7 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     })
     .unwrap();
     let masked_disp = "maskedecehce";
-
+    highgui::named_window(masked_disp, WND_PROP_AUTOSIZE);
     let mut cam = videoio::VideoCapture::new(0, videoio::CAP_ANY)?; // 0 is the default camera
 
     let opened = videoio::VideoCapture::is_opened(&cam)?;
@@ -174,6 +171,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let t0 = Instant::now();
         let mut frame = Mat::default();
         cam.read(&mut frame)?;
+        // highgui::imshow(masked_disp, &frame)?;
         // println!("{:?}", frame);
         let mut mask = Mat::default();
         in_range(&frame, &low, &high, &mut mask)?;
@@ -237,16 +235,26 @@ fn main() -> Result<(), Box<dyn Error>> {
                 "Offset error : {}, Angle Error: {}",
                 offset_error, angle_error
             );
-            let effort = p_steering_gain * offset_error;
-            let zero = 0.077;
-            let turning_effort = zero + 0.02 * (effort).clamp(-1.0, 1.0);
-            let p_drive_gain = 0.3;
-            let speed = min_speed
-                + (1.0 - (angle_error.abs()) + p_drive_gain)
-                    .powf(4.0)
-                    .clamp(0.0, 1.0)
-                    * (max_speed - min_speed);
-            // highgui::imshow(masked_disp, &sliced)?;
+            // let effort = p_steering_gain * offset_error;
+            // let zero = 0.077;
+            // let turning_effort = zero + 0.02 * (effort).clamp(-1.0, 1.0);
+            // let p_drive_gain = 0.3;
+            // let speed = min_speed
+            //     + (1.0 - (angle_error.abs()) + p_drive_gain)
+            //         .powf(4.0)
+            //         .clamp(0.0, 1.0)
+            //         * (max_speed - min_speed);
+            // // highgui::imshow(masked_disp, &sliced)?;
+
+            let x: Tensor =
+                tract_ndarray::Array1::from_vec(vec![offset_error as f32, angle_error as f32])
+                    .into();
+            let result = model.run(tvec!(x.into()))?;
+
+            // find and display the max value with its index
+            let best = result[0].to_array_view::<f32>()?;
+            let turning_effort = best[0] as f64;
+            let speed = best[1] as f64;
             let t1 = Instant::now();
             daq_send
                 .send(DaqMessage::Data(ControlLog {
@@ -274,3 +282,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
+
+// fn main() -> TractResult<()> {
+//     let model = tract_onnx::onnx()
+//         // load the model
+//         .model_for_path("driver.onnx")?
+//         // specify input type and shape
+//         .with_input_fact(0, f32::fact([2]).into())?
+//         // optimize the model
+//         .into_optimized()?
+//         // make the model runnable and fix its inputs and outputs
+//         .into_runnable()?;
+//     let x: Tensor = tract_ndarray::Array1::from_vec(vec![0.5_f32, 0.3]).into();
+//     let result = model.run(tvec!(x.into()))?;
+
+//     // find and display the max value with its index
+//     let best = result[0].to_array_view::<f32>()?;
+//     println!("result: {:?}, {:?}", best[0], best[1]);
+//     Ok(())
+// }
